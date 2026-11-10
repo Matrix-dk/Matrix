@@ -2,9 +2,15 @@ import SwiftUI
 import AppKit
 
 struct DashboardView: View {
+
     @ObservedObject var store: Sampler
     @ObservedObject var settings: Settings
     var onOpenSettings: () -> Void = {}
+
+    @AppStorage("historyRange") private var rangeRaw: String = TimeRange.hour.rawValue
+
+    private var range: TimeRange { TimeRange(rawValue: rangeRaw) ?? .hour }
+    private var history: HistoryStore { HistoryStore.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,6 +19,9 @@ struct DashboardView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
                     cpuCard
+                    if store.gpu.available {
+                        gpuCard
+                    }
                     memoryCard
                     networkCard
                     diskCard
@@ -27,7 +36,7 @@ struct DashboardView: View {
             Divider()
             footer
         }
-        .frame(width: 344, height: 566)
+        .frame(width: 368, height: 660)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -40,13 +49,21 @@ struct DashboardView: View {
                 .foregroundColor(.accentColor)
             Text("Matrix")
                 .font(.system(size: 13, weight: .semibold))
-            Spacer()
-            Text("已运行 " + Format.uptime(store.cpu.uptime))
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+
+            Spacer(minLength: 6)
+
+            Picker("", selection: $rangeRaw) {
+                ForEach(TimeRange.allCases) { item in
+                    Text(item.shortTitle).tag(item.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 132)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.top, 9)
+        .padding(.bottom, 7)
     }
 
     private var footer: some View {
@@ -58,7 +75,7 @@ struct DashboardView: View {
 
             Spacer()
 
-            Text("每 \(Int(settings.refreshInterval))s 刷新")
+            Text(historyCaption)
                 .font(.system(size: 9.5))
                 .foregroundColor(.secondary)
 
@@ -74,19 +91,29 @@ struct DashboardView: View {
         .padding(.vertical, 8)
     }
 
+    private var historyCaption: String {
+        if !settings.historyEnabled { return "历史记录已关闭" }
+        guard let earliest = history.earliestDate else { return "历史记录中…" }
+        return "已记录 \(Format.uptime(Date().timeIntervalSince(earliest)))"
+    }
+
     // MARK: - CPU
 
     private var cpuCard: some View {
         Card(title: "CPU",
              value: Format.percent(store.cpu.usage),
-             detail: String(format: "1 分钟负载 %.2f", store.cpu.loadOne),
+             detail: String(format: "负载 %.2f / %.2f / %.2f",
+                            store.cpu.loadOne, store.cpu.loadFive, store.cpu.loadFifteen),
              accent: .orange) {
             VStack(spacing: 7) {
-                Sparkline(values: store.cpuHistory.values, color: .orange, peak: 1)
-                    .frame(height: 30)
+                RangeChart(values: chartValues(.cpu, fallback: store.cpuHistory.values),
+                           color: .orange,
+                           range: range,
+                           ceiling: 1,
+                           formatter: { Format.percent($0) })
 
                 CoreBars(values: store.cpu.perCore)
-                    .frame(height: 26)
+                    .frame(height: 22)
 
                 HStack {
                     Text("\(store.cpu.coreCount) 核")
@@ -101,6 +128,37 @@ struct DashboardView: View {
         }
     }
 
+    // MARK: - GPU
+
+    private var gpuCard: some View {
+        Card(title: "GPU",
+             value: Format.percent(store.gpu.utilization),
+             detail: store.gpu.name,
+             accent: .indigo) {
+            VStack(spacing: 7) {
+                RangeChart(values: chartValues(.gpu, fallback: store.gpuHistory.values),
+                           color: .indigo,
+                           range: range,
+                           ceiling: 1,
+                           formatter: { Format.percent($0) },
+                           height: 34)
+
+                UsageBar(fraction: store.gpu.utilization, color: .indigo)
+
+                StatRow(label: "渲染器", value: Format.percent(store.gpu.renderUtilization))
+                if store.gpu.usedMemory > 0 {
+                    StatRow(label: "显存占用",
+                            value: store.gpu.allocatedMemory > 0
+                                ? "\(Format.bytes(store.gpu.usedMemory)) / \(Format.bytes(store.gpu.allocatedMemory))"
+                                : Format.bytes(store.gpu.usedMemory))
+                }
+                if store.gpu.coreCount > 0 {
+                    StatRow(label: "GPU 核心", value: "\(store.gpu.coreCount)")
+                }
+            }
+        }
+    }
+
     // MARK: - 内存
 
     private var memoryCard: some View {
@@ -109,10 +167,22 @@ struct DashboardView: View {
              detail: "\(Format.bytes(store.memory.used)) / \(Format.bytes(store.memory.total))",
              accent: .purple) {
             VStack(spacing: 7) {
-                Sparkline(values: store.memoryHistory.values, color: .purple, peak: 1)
-                    .frame(height: 26)
+                RangeChart(values: chartValues(.memory, fallback: store.memoryHistory.values),
+                           color: .purple,
+                           range: range,
+                           ceiling: 1,
+                           formatter: { Format.percent($0) },
+                           height: 34)
 
                 UsageBar(fraction: store.memory.usage, color: .purple)
+
+                HStack(spacing: 6) {
+                    Text("内存压力")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Pill(text: store.memory.pressure.title, color: pressureColor)
+                }
 
                 VStack(spacing: 3) {
                     StatRow(label: "App 内存", value: Format.bytes(store.memory.app))
@@ -128,25 +198,94 @@ struct DashboardView: View {
         }
     }
 
+    private var pressureColor: Color {
+        switch store.memory.pressure {
+        case .normal: return .green
+        case .warning: return .orange
+        case .critical: return .red
+        }
+    }
+
     // MARK: - 网络
 
     private var networkCard: some View {
         Card(title: "网络",
              value: "↓ " + Format.rate(store.network.downBytesPerSec),
-             detail: store.network.ipAddress.isEmpty ? nil : store.network.ipAddress,
+             detail: store.network.interfaceName.isEmpty ? nil : store.network.interfaceName,
              accent: .blue) {
             VStack(spacing: 7) {
-                Sparkline(values: store.downHistory.values, color: .blue)
-                    .frame(height: 26)
+                RangeChart(values: chartValues(.netDown, fallback: store.downHistory.values),
+                           color: .blue,
+                           range: range,
+                           formatter: { Format.compactRate($0) },
+                           height: 34)
 
                 StatRow(label: "下行", value: Format.rate(store.network.downBytesPerSec), color: .blue)
                 StatRow(label: "上行", value: Format.rate(store.network.upBytesPerSec), color: .orange)
                 StatRow(label: "本次开机累计",
                         value: "↓\(Format.bytes(store.network.totalDown))  ↑\(Format.bytes(store.network.totalUp))")
 
-                if !store.network.interfaceName.isEmpty {
-                    StatRow(label: "主接口", value: store.network.interfaceName)
+                if !store.network.interfaces.isEmpty {
+                    Divider().opacity(0.4)
+                    ForEach(Array(store.network.interfaces.prefix(4))) { item in
+                        interfaceRow(item)
+                    }
                 }
+
+                if store.wifi.available && store.wifi.powered {
+                    Divider().opacity(0.4)
+                    wifiBlock
+                }
+            }
+        }
+    }
+
+    private func interfaceRow(_ item: InterfaceSample) -> some View {
+        HStack(spacing: 5) {
+            if item.isPrimary {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 4, height: 4)
+            }
+            Text(item.displayName)
+                .font(.system(size: 10.5))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text("↓\(Format.compactRate(item.downBytesPerSec)) ↑\(Format.compactRate(item.upBytesPerSec))")
+                .font(.system(size: 10, weight: .medium))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var wifiBlock: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                SignalBars(level: store.wifi.signalBars,
+                           color: store.wifi.signalBars <= 1 ? .red : .blue)
+                Text(store.wifi.ssid ?? "Wi-Fi（SSID 需定位权限）")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if let rssi = store.wifi.rssi {
+                    Text("\(rssi) dBm")
+                        .font(.system(size: 10))
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                }
+            }
+            if let channel = store.wifi.channel {
+                StatRow(label: "信道", value: channel)
+            }
+            if let rate = store.wifi.txRateMbps {
+                StatRow(label: "协商速率", value: String(format: "%.0f Mbps", rate))
+            }
+            if let phy = store.wifi.phyMode {
+                StatRow(label: "协议", value: phy)
+            }
+            if let noise = store.wifi.noise {
+                StatRow(label: "噪声", value: "\(noise) dBm")
             }
         }
     }
@@ -164,6 +303,23 @@ struct DashboardView: View {
                 StatRow(label: "写入", value: Format.rate(store.disk.writeBytesPerSec), color: .orange)
                 StatRow(label: "总容量",
                         value: "\(Format.bytes(store.disk.used)) / \(Format.bytes(store.disk.total))")
+
+                if store.disk.volumes.count > 1 {
+                    Divider().opacity(0.4)
+                    ForEach(Array(store.disk.volumes.prefix(4))) { volume in
+                        HStack(spacing: 6) {
+                            Text(volume.name)
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("\(Format.bytes(volume.free)) 可用")
+                                .font(.system(size: 10))
+                                .monospacedDigit()
+                                .foregroundColor(volume.usage >= 0.9 ? .red : .secondary)
+                        }
+                    }
+                }
             }
         }
     }
@@ -192,6 +348,9 @@ struct DashboardView: View {
                 if let temperature = battery.temperatureCelsius {
                     StatRow(label: "电池温度", value: String(format: "%.1f°C", temperature))
                 }
+                if let watts = battery.powerWatts {
+                    StatRow(label: "功率", value: String(format: "%.1f W", abs(watts)))
+                }
             }
         }
     }
@@ -201,21 +360,68 @@ struct DashboardView: View {
     private var sensorsCard: some View {
         Card(title: "传感器",
              value: store.sensors.cpuTemperature.map { String(format: "%.1f°C", $0) } ?? "—",
+             detail: store.sensors.catalogueSize > 0 ? "\(store.sensors.catalogueSize) 个 key" : nil,
              accent: .pink) {
-            VStack(spacing: 4) {
-                if let temperature = store.sensors.cpuTemperature {
-                    StatRow(label: "CPU 温度",
-                            value: String(format: "%.1f°C", temperature),
-                            color: temperature >= 80 ? .red : .primary)
+            VStack(spacing: 5) {
+                HStack(spacing: 4) {
+                    Text("温度")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button(settings.showAllSensors ? "精简" : "全部") {
+                        settings.showAllSensors.toggle()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9.5))
+                    .foregroundColor(.accentColor)
                 }
-                ForEach(Array(store.sensors.fanRPMs.enumerated()), id: \.offset) { index, rpm in
-                    StatRow(label: "风扇 \(index)", value: String(format: "%.0f RPM", rpm))
-                }
-                if !store.sensors.smcAvailable {
-                    Text("当前机型无法读取 SMC（Apple Silicon 部分机型温度 key 不同）")
+
+                if store.sensors.temperatures.isEmpty {
+                    Text("当前机型读不到 SMC 温度")
                         .font(.system(size: 9.5))
                         .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    let limit = settings.showAllSensors ? store.sensors.temperatures.count : 6
+                    ForEach(Array(store.sensors.temperatures.prefix(limit))) { item in
+                        StatRow(label: "\(item.label)  ·  \(item.key)",
+                                value: item.formatted,
+                                color: UsageColor.temperature(item.value))
+                    }
+                    if !settings.showAllSensors, store.sensors.temperatures.count > 6 {
+                        Text("另有 \(store.sensors.temperatures.count - 6) 项未显示")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if !store.sensors.fans.isEmpty {
+                    Divider().opacity(0.4)
+                    ForEach(store.sensors.fans) { fan in
+                        StatRow(label: fan.label,
+                                value: String(format: "%.0f RPM", fan.value),
+                                color: fan.value > 4000 ? .orange : .secondary)
+                    }
+                }
+
+                if settings.showAllSensors {
+                    if !store.sensors.powers.isEmpty {
+                        Divider().opacity(0.4)
+                        ForEach(Array(store.sensors.powers.prefix(4))) { item in
+                            StatRow(label: "功率 \(item.key)", value: item.formatted)
+                        }
+                    }
+                    if !store.sensors.voltages.isEmpty {
+                        Divider().opacity(0.4)
+                        ForEach(Array(store.sensors.voltages.prefix(4))) { item in
+                            StatRow(label: "电压 \(item.key)", value: item.formatted)
+                        }
+                    }
+                    if !store.sensors.currents.isEmpty {
+                        Divider().opacity(0.4)
+                        ForEach(Array(store.sensors.currents.prefix(4))) { item in
+                            StatRow(label: "电流 \(item.key)", value: item.formatted)
+                        }
+                    }
                 }
             }
         }
@@ -226,12 +432,27 @@ struct DashboardView: View {
     private var processCard: some View {
         Card(title: "占用最高的进程", accent: .gray) {
             VStack(spacing: 4) {
+                HStack(spacing: 6) {
+                    ForEach(ProcessSort.allCases) { sort in
+                        Button(sort.title) {
+                            settings.processSort = sort
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 9.5, weight: settings.processSort == sort ? .semibold : .regular))
+                        .foregroundColor(settings.processSort == sort ? .accentColor : .secondary)
+                    }
+                    Spacer()
+                    Text("\(store.processes.count) 个采样")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+
                 if store.processes.isEmpty {
                     Text("采样中…")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(store.processes) { process in
+                    ForEach(store.rankedProcesses(limit: 6)) { process in
                         HStack(spacing: 6) {
                             Text(process.name)
                                 .font(.system(size: 10.5))
@@ -252,5 +473,14 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 辅助
+
+    /// 历史数据还没攒够时退回内存里的实时曲线
+    private func chartValues(_ metric: HistoryMetric, fallback: [Double]) -> [Double] {
+        guard settings.historyEnabled else { return fallback }
+        let values = history.series(metric, range: range)
+        return values.isEmpty ? fallback : values
     }
 }

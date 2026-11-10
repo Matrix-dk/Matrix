@@ -22,7 +22,7 @@ import urllib.request
 
 API = "https://api.github.com"
 
-SKIP_DIRS = {".git", ".build", ".swiftpm", "dist", "DerivedData", "node_modules", "__pycache__", ".idea", ".vscode"}
+SKIP_DIRS = {".git", ".build", ".swiftpm", "dist", "DerivedData", "node_modules", "__pycache__", ".idea", ".vscode", ".workbuddy"}
 SKIP_FILES = {".DS_Store", "Package.resolved"}
 MAX_BLOB = 40 * 1024 * 1024
 

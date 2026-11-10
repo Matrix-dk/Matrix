@@ -26,3 +26,6 @@ DerivedData/
 .vscode/
 .idea/
 *.swp
+
+# 项目内部数据（不是构建产物，但不该进仓库）
+.workbuddy/

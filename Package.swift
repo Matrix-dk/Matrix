@@ -12,7 +12,13 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Matrix",
-            path: "Sources/Matrix"
+            path: "Sources/Matrix",
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreWLAN"),
+                .linkedFramework("SystemConfiguration"),
+                .linkedFramework("UserNotifications")
+            ]
         )
     ]
 )

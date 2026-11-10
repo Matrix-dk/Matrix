@@ -53,7 +53,20 @@ final class MemoryReader {
             sample.swapUsed = swap.used
         }
 
+        sample.pressure = Self.pressureLevel()
+
         return sample
+    }
+
+    /// 内核自己算好的内存压力等级：1 正常 / 2 偏高 / 4 紧张。
+    /// 比拿「已用百分比」去猜准得多，和活动监视器的判断口径一致。
+    private static func pressureLevel() -> MemoryPressure {
+        var level: Int32 = 0
+        var size = MemoryLayout<Int32>.stride
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 else {
+            return .normal
+        }
+        return MemoryPressure(level: level)
     }
 
     private static func swapUsage() -> (total: UInt64, used: UInt64)? {

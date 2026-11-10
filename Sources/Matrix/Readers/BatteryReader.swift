@@ -50,6 +50,14 @@ final class BatteryReader {
             }
         }
 
+        // Amperage 单位 mA（放电为负），Voltage 单位 mV
+        if let amperage = (registry["Amperage"] as? NSNumber)?.doubleValue, amperage != 0 {
+            sample.amperageMilliAmps = amperage
+        }
+        if let voltage = (registry["Voltage"] as? NSNumber)?.doubleValue, voltage > 0 {
+            sample.voltageMilliVolts = voltage
+        }
+
         return sample
     }
 
