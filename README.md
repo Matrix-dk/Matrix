@@ -1,6 +1,21 @@
 # Matrix
 
+[![build](https://github.com/Matrix-dk/Matrix/actions/workflows/build.yml/badge.svg)](https://github.com/Matrix-dk/Matrix/actions/workflows/build.yml)
+[![release](https://img.shields.io/github/v/release/Matrix-dk/Matrix)](https://github.com/Matrix-dk/Matrix/releases/latest)
+[![license](https://img.shields.io/github/license/Matrix-dk/Matrix)](LICENSE)
+
 macOS 菜单栏系统监视器，类似 iStat Menus 的轻量实现。纯 Swift + SwiftUI + AppKit，没有第三方依赖，不需要 Xcode 工程文件，`swift build` 就能出包。
+
+## 直接下载
+
+不想自己编译就去 [Releases](https://github.com/Matrix-dk/Matrix/releases/latest) 下 `Matrix.zip`（约 310 KB，通用二进制 arm64 + x86_64）：
+
+```bash
+unzip Matrix.zip -d /Applications
+xattr -dr com.apple.quarantine /Applications/Matrix.app   # 绕过 ad-hoc 签名的「无法验证开发者」
+open /Applications/Matrix.app
+```
+
 
 ## 功能
 
@@ -90,6 +105,8 @@ Sources/Matrix/
 4. **温度 key 各机型不同**。Intel 是 `TC0P/TC0D`，Apple Silicon 是 `Tp0x` 系列，代码里是一个候选列表，取第一个落在合理区间（15~125°C）的值。
 5. **进程排行用 `ps`**。算真实 CPU% 要按 pid 存两次 `rusage` 差值，`ps` 已经做完了；代价是每 3 个采样周期 fork 一次。
 6. **状态栏图片非 template**。要显示彩色数值和曲线，所以关掉 template 模式，自己按菜单栏深浅色决定标签颜色，并监听 `AppleInterfaceThemeChangedThemeNotification` 重绘。
+7. **CI 用 `macos-latest`**。`macos-14` / `macos-13` 的 runner 镜像已被 GitHub 退役，用它会出现「任务排队即被 cancelled、一个 step 都没跑」的假故障。
+
 
 ## 已知限制
 
