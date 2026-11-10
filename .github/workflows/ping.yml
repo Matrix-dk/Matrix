@@ -2,8 +2,18 @@ name: ping
 on:
   workflow_dispatch:
 jobs:
-  ping:
-    name: ping
-    runs-on: ubuntu-latest
+  ping-latest:
+    name: macos-latest
+    runs-on: macos-latest
     steps:
-      - run: echo hello
+      - run: sw_vers && swift --version
+  ping-15:
+    name: macos-15
+    runs-on: macos-15
+    steps:
+      - run: sw_vers && swift --version
+  ping-13:
+    name: macos-13
+    runs-on: macos-13
+    steps:
+      - run: sw_vers && swift --version
