@@ -1,0 +1,67 @@
+import Foundation
+import Darwin
+
+/// 内存统计取 host_statistics64 的 vm_statistics64，
+/// 口径尽量贴近「活动监视器」：已用 = App 内存 + 联动内存 + 已压缩内存。
+final class MemoryReader {
+
+    private var pageSize: UInt64 = 4096
+
+    init() {
+        var size: vm_size_t = 0
+        if host_page_size(mach_host_self(), &size) == KERN_SUCCESS {
+            pageSize = UInt64(size)
+        }
+    }
+
+    func sample() -> MemorySample? {
+        var statistics = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
+
+        let result = withUnsafeMutablePointer(to: &statistics) { pointer -> kern_return_t in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, rebound, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+
+        let page = Double(pageSize)
+        var sample = MemorySample()
+        sample.total = ProcessInfo.processInfo.physicalMemory
+
+        let inactive = Double(statistics.inactive_count) * page
+        let wired = Double(statistics.wire_count) * page
+        let compressed = Double(statistics.compressor_page_count) * page
+        let purgeable = Double(statistics.purgeable_count) * page
+        let external = Double(statistics.external_page_count) * page
+        let internalPages = Double(statistics.internal_page_count) * page
+
+        let appMemory = max(0, internalPages - purgeable)
+        sample.app = UInt64(appMemory)
+        sample.wired = UInt64(wired)
+        sample.compressed = UInt64(compressed)
+        sample.cached = UInt64(external + max(0, inactive))
+        sample.used = UInt64(appMemory + wired + compressed)
+
+        // 用一点保底，避免超过物理内存导致百分比 >100%
+        if sample.used > sample.total {
+            sample.used = sample.total
+        }
+
+        if let swap = Self.swapUsage() {
+            sample.swapTotal = swap.total
+            sample.swapUsed = swap.used
+        }
+
+        return sample
+    }
+
+    private static func swapUsage() -> (total: UInt64, used: UInt64)? {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.stride
+        var mib: [Int32] = [CTL_VM, VM_SWAPUSAGE]
+        let result = sysctl(&mib, u_int(mib.count), &usage, &size, nil, 0)
+        guard result == 0 else { return nil }
+        return (usage.xsu_total, usage.xsu_used)
+    }
+}

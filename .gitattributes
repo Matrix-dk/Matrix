@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.swift text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+Makefile text eol=lf
+*.png binary
+*.icns binary
+*.zip binary

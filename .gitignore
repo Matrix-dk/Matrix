@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# 产物
+dist/
+*.app
+*.dmg
+*.zip
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
