@@ -26,7 +26,7 @@ final class WiFiReader {
         let noise = interface.noiseMeasurement()
         if noise < 0 { sample.noise = noise }
 
-        sample.channel = Self.channelText(interface.channel())
+        sample.channel = Self.channelText(interface.wlanChannel())
 
         let rate = interface.transmitRate()
         if rate > 0 { sample.txRateMbps = rate }

@@ -248,9 +248,10 @@ struct SignalBars: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 1.5) {
             ForEach(0 ..< 4, id: \.self) { index in
+                let barHeight: CGFloat = 3.0 + Double(index) * 2.5
                 RoundedRectangle(cornerRadius: 1)
                     .fill(index < level ? color : Color.primary.opacity(0.15))
-                    .frame(width: 2.5, height: CGFloat(3 + index * 2.5))
+                    .frame(width: 2.5, height: barHeight)
             }
         }
         .frame(height: 12, alignment: .bottom)
