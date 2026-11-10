@@ -11,7 +11,7 @@ final class ProcessReader {
     func sample(cpuLimit: Int = 18, memoryLimit: Int = 12) -> [ProcessSample] {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        task.arguments = ["-Ao", "pid=,pcpu=,rss=,comm="]
+        task.arguments = ["-Ao", "pid=,pcpu=,rss=,state=,comm="]
 
         let pipe = Pipe()
         task.standardOutput = pipe
@@ -30,20 +30,25 @@ final class ProcessReader {
 
         var all: [ProcessSample] = []
         for line in text.split(separator: "\n") {
-            // 只切前 3 段，剩下的整体当进程路径，避免带空格的路径被切碎
-            let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
-            guard parts.count == 4,
+            // 只切前 4 段，剩下的整体当进程路径，避免带空格的路径被切碎
+            let parts = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
+            guard parts.count == 5,
                   let pid = Int32(parts[0]),
                   let cpu = Double(parts[1]),
                   let residentKB = UInt64(parts[2]) else { continue }
 
-            let path = String(parts[3])
+            let state = String(parts[3])
+            let path = String(parts[4])
             var name = (path as NSString).lastPathComponent
             if name.isEmpty { name = path }
             // 内核线程路径长这样：/usr/libexec/... 之类，取不到名字就跳过
             guard !name.isEmpty else { continue }
 
-            all.append(ProcessSample(pid: pid, name: name, cpu: cpu, memory: residentKB * 1024))
+            all.append(ProcessSample(pid: pid,
+                                     name: name,
+                                     cpu: cpu,
+                                     memory: residentKB * 1024,
+                                     state: state))
         }
 
         var merged: [Int32: ProcessSample] = [:]

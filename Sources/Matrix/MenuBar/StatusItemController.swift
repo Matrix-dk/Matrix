@@ -4,7 +4,7 @@ import Combine
 
 /// 状态栏总控。
 ///
-/// v0.2 起每个模块是**独立的 NSStatusItem**，而不是把所有数值拼进一张图：
+/// 每个模块是**独立的 NSStatusItem**，而不是把所有数值拼进一张图：
 /// 这样可以分别开关、分别占位，也不会因为一个模块太长把整条撑爆。
 ///
 /// 排序依赖 NSStatusBar 的创建顺序——新 item 会插在已有 item 的左侧，
@@ -54,7 +54,9 @@ final class StatusItemController: NSObject {
                 // objectWillChange 在属性真正改动前触发，延后一拍再读
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    self.sampler.restart()
+                    if !self.sampler.isPaused {
+                        self.sampler.restart()
+                    }
                     self.syncItems()
                     self.renderAll()
                 }
@@ -105,6 +107,7 @@ final class StatusItemController: NSObject {
             item.isVisible = true
             item.button?.image = MenuBarRenderer.image(for: [segment])
             item.button?.toolTip = tooltip(for: module)
+            item.button?.appearsDisabled = sampler.isPaused
         }
 
         // 全都取不到数据时（比如刚启动、硬件都不支持），至少留一个能点的入口
@@ -118,92 +121,138 @@ final class StatusItemController: NSObject {
     // MARK: - 每模块的内容
 
     private func segment(for module: ModuleKind) -> MenuBarSegment? {
-        let withGraph = settings.showGraphInMenuBar
+        let style = settings.menuBarStyle
         let compact = settings.compactMenuBar
 
         switch module {
         case .cpu:
             let fraction = sampler.cpu.usage
-            return MenuBarSegment(
-                label: compact ? "" : "CPU",
-                value: String(format: "%3.0f%%", fraction * 100),
-                valueColor: loadColor(fraction),
-                sparkline: withGraph ? sampler.cpuHistory.suffix(26) : [],
-                sparkColor: loadColor(fraction)
-            )
+            return compose(style: style,
+                           compact: compact,
+                           label: "CPU",
+                           value: String(format: "%3.0f%%", fraction * 100),
+                           valueColor: loadColor(fraction),
+                           fraction: fraction,
+                           sparkline: sampler.cpuHistory.suffix(26),
+                           sparkColor: loadColor(fraction),
+                           icon: module.symbolName)
 
         case .gpu:
             guard sampler.gpu.available else { return nil }
             let fraction = sampler.gpu.utilization
-            return MenuBarSegment(
-                label: compact ? "" : "GPU",
-                value: String(format: "%3.0f%%", fraction * 100),
-                valueColor: loadColor(fraction),
-                sparkline: withGraph ? sampler.gpuHistory.suffix(26) : [],
-                sparkColor: .systemIndigo
-            )
+            return compose(style: style,
+                           compact: compact,
+                           label: "GPU",
+                           value: String(format: "%3.0f%%", fraction * 100),
+                           valueColor: loadColor(fraction),
+                           fraction: fraction,
+                           sparkline: sampler.gpuHistory.suffix(26),
+                           sparkColor: .systemIndigo,
+                           icon: module.symbolName)
 
         case .memory:
             let fraction = sampler.memory.usage
-            return MenuBarSegment(
-                label: compact ? "" : "MEM",
-                value: String(format: "%3.0f%%", fraction * 100),
-                valueColor: loadColor(fraction),
-                sparkline: withGraph ? sampler.memoryHistory.suffix(26) : [],
-                sparkColor: .systemPurple
-            )
+            return compose(style: style,
+                           compact: compact,
+                           label: "MEM",
+                           value: String(format: "%3.0f%%", fraction * 100),
+                           valueColor: loadColor(fraction),
+                           fraction: fraction,
+                           sparkline: sampler.memoryHistory.suffix(26),
+                           sparkColor: .systemPurple,
+                           icon: module.symbolName)
 
         case .network:
             let down = Format.compactRate(sampler.network.downBytesPerSec)
             let up = Format.compactRate(sampler.network.upBytesPerSec)
-            return MenuBarSegment(
-                value: "↓\(down) ↑\(up)",
-                valueColor: .labelColor,
-                sparkline: withGraph ? sampler.downHistory.suffix(26) : [],
-                sparkColor: .systemBlue
-            )
+            // 网络没有「占比」概念，圆环样式退化成纯数值
+            return compose(style: style == .ring ? .valueOnly : style,
+                           compact: compact,
+                           label: "",
+                           value: "↓\(down) ↑\(up)",
+                           valueColor: .labelColor,
+                           fraction: nil,
+                           sparkline: sampler.downHistory.suffix(26),
+                           sparkColor: .systemBlue,
+                           icon: module.symbolName)
 
         case .disk:
             let fraction = sampler.disk.usage
-            return MenuBarSegment(
-                label: compact ? "" : "SSD",
-                value: String(format: "%3.0f%%", fraction * 100),
-                valueColor: loadColor(fraction),
-                sparkline: [],
-                sparkColor: .systemTeal
-            )
+            return compose(style: style,
+                           compact: compact,
+                           label: "SSD",
+                           value: String(format: "%3.0f%%", fraction * 100),
+                           valueColor: loadColor(fraction),
+                           fraction: fraction,
+                           sparkline: [],
+                           sparkColor: .systemTeal,
+                           icon: module.symbolName)
 
         case .battery:
             guard let battery = sampler.battery else { return nil }
-            return MenuBarSegment(
-                label: compact ? "" : "BAT",
-                value: String(format: "%3.0f%%", battery.percent),
-                valueColor: batteryColor(battery),
-                sparkline: [],
-                sparkColor: .systemGreen
-            )
+            return compose(style: style,
+                           compact: compact,
+                           label: "BAT",
+                           value: String(format: "%3.0f%%", battery.percent),
+                           valueColor: batteryColor(battery),
+                           fraction: battery.percent / 100,
+                           sparkline: [],
+                           sparkColor: .systemGreen,
+                           icon: battery.percent > 20 ? "battery.100" : "battery.25")
 
         case .sensors:
             guard let temperature = sampler.sensors.cpuTemperature else { return nil }
-            return MenuBarSegment(
-                label: "",
-                value: String(format: "%.0f°C", temperature),
-                valueColor: temperatureColor(temperature),
-                sparkline: [],
-                sparkColor: .systemOrange
-            )
+            return compose(style: style,
+                           compact: compact,
+                           label: "",
+                           value: String(format: "%.0f°C", temperature),
+                           valueColor: temperatureColor(temperature),
+                           fraction: min(1, temperature / 100),
+                           sparkline: [],
+                           sparkColor: .systemOrange,
+                           icon: module.symbolName)
 
         case .clock:
             let formatter = DateFormatter()
             formatter.dateFormat = settings.clockShowsSeconds ? "HH:mm:ss" : "HH:mm"
-            return MenuBarSegment(
-                label: "",
-                value: formatter.string(from: Date()),
-                valueColor: .labelColor,
-                sparkline: [],
-                sparkColor: .systemGray
-            )
+            return MenuBarSegment(label: "",
+                                  value: formatter.string(from: Date()),
+                                  valueColor: .labelColor,
+                                  sparkline: [],
+                                  sparkColor: .systemGray)
         }
+    }
+
+    /// 按当前样式把一个模块组织成状态栏条目
+    private func compose(style: MenuBarStyle,
+                         compact: Bool,
+                         label: String,
+                         value: String,
+                         valueColor: NSColor,
+                         fraction: Double?,
+                         sparkline: [Double],
+                         sparkColor: NSColor,
+                         icon: String) -> MenuBarSegment {
+
+        var segment = MenuBarSegment()
+        segment.valueColor = valueColor
+        segment.sparkColor = sparkColor
+
+        switch style {
+        case .text:
+            segment.label = compact ? "" : label
+            segment.value = value
+            segment.sparkline = settings.showGraphInMenuBar ? sparkline : []
+        case .valueOnly:
+            segment.value = value
+            segment.sparkline = settings.showGraphInMenuBar ? sparkline : []
+        case .icon:
+            segment.iconName = icon
+        case .ring:
+            segment.ringProgress = fraction ?? 0
+            segment.value = value
+        }
+        return segment
     }
 
     private func tooltip(for module: ModuleKind) -> String {
@@ -265,14 +314,21 @@ final class StatusItemController: NSObject {
 
     private func showContextMenu(for item: NSStatusItem) {
         guard let button = item.button, let event = NSApp.currentEvent else { return }
-        let menu = buildMenu()
-        NSMenu.popUpContextMenu(menu, with: event, for: button)
+        NSMenu.popUpContextMenu(buildMenu(), with: event, for: button)
     }
 
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
         add(to: menu, title: "打开面板", action: #selector(openPanel))
         add(to: menu, title: "立即刷新", action: #selector(refreshNow))
+
+        let pauseItem = NSMenuItem(title: "暂停监视",
+                                   action: #selector(togglePause),
+                                   keyEquivalent: "")
+        pauseItem.target = self
+        pauseItem.state = sampler.isPaused ? .on : .off
+        menu.addItem(pauseItem)
+
         menu.addItem(.separator())
 
         // 模块勾选子菜单，省得为了关掉一项去开设置
@@ -289,6 +345,7 @@ final class StatusItemController: NSObject {
         menu.addItem(modulesItem)
 
         menu.addItem(.separator())
+        add(to: menu, title: "重置网络累计流量", action: #selector(resetNetworkTotals))
         add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
         add(to: menu, title: "关于 Matrix", action: #selector(openAbout))
         menu.addItem(.separator())
@@ -314,6 +371,20 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func refreshNow() {
+        if sampler.isPaused {
+            sampler.setPaused(false)
+        } else {
+            sampler.restart()
+        }
+    }
+
+    @objc private func togglePause() {
+        sampler.setPaused(!sampler.isPaused)
+        renderAll()
+    }
+
+    @objc private func resetNetworkTotals() {
+        sampler.resetNetworkTotals()
         sampler.restart()
     }
 
@@ -339,7 +410,7 @@ final class StatusItemController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Matrix",
-            .applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0",
+            .applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0",
             .credits: NSAttributedString(string: "macOS 菜单栏系统监视器")
         ])
     }

@@ -29,6 +29,9 @@ struct DashboardView: View {
                         batteryCard(battery)
                     }
                     sensorsCard
+                    if settings.menuBarModules.contains(.clock) {
+                        clockCard
+                    }
                     processCard
                 }
                 .padding(10)
@@ -75,9 +78,9 @@ struct DashboardView: View {
 
             Spacer()
 
-            Text(historyCaption)
+            Text(store.isPaused ? "已暂停" : historyCaption)
                 .font(.system(size: 9.5))
-                .foregroundColor(.secondary)
+                .foregroundColor(store.isPaused ? .orange : .secondary)
 
             Button {
                 NSApp.terminate(nil)
@@ -193,6 +196,12 @@ struct DashboardView: View {
                             value: store.memory.swapTotal > 0
                                 ? "\(Format.bytes(store.memory.swapUsed)) / \(Format.bytes(store.memory.swapTotal))"
                                 : "未使用")
+                    StatRow(label: "页面换入",
+                            value: String(format: "%.0f 页/s", store.memory.pageInRate),
+                            color: store.memory.pageInRate > 50 ? .orange : .secondary)
+                    StatRow(label: "页面换出",
+                            value: String(format: "%.0f 页/s", store.memory.pageOutRate),
+                            color: store.memory.pageOutRate > 50 ? .orange : .secondary)
                 }
             }
         }
@@ -222,8 +231,29 @@ struct DashboardView: View {
 
                 StatRow(label: "下行", value: Format.rate(store.network.downBytesPerSec), color: .blue)
                 StatRow(label: "上行", value: Format.rate(store.network.upBytesPerSec), color: .orange)
-                StatRow(label: "本次开机累计",
-                        value: "↓\(Format.bytes(store.network.totalDown))  ↑\(Format.bytes(store.network.totalUp))")
+                HStack(spacing: 6) {
+                    Text("本次开机累计")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary)
+                    Spacer(minLength: 4)
+                    Text("↓\(Format.bytes(store.network.totalDown))  ↑\(Format.bytes(store.network.totalUp))")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                    Button {
+                        store.resetNetworkTotals()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 8.5))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                    .help("把累计流量清零重新统计")
+                }
+
+                if !store.network.publicIP.isEmpty {
+                    StatRow(label: "公网 IP", value: store.network.publicIP)
+                }
 
                 if !store.network.interfaces.isEmpty {
                     Divider().opacity(0.4)
@@ -427,6 +457,29 @@ struct DashboardView: View {
         }
     }
 
+    // MARK: - 时间
+
+    private var clockCard: some View {
+        Card(title: "时间",
+             value: Format.clock(Date(), timeZone: .current),
+             accent: .gray) {
+            VStack(spacing: 4) {
+                StatRow(label: "本地", value: Format.fullDateTime(Date()))
+                ForEach(settings.clockZoneIdentifiers, id: \.self) { identifier in
+                    if let zone = TimeZone(identifier: identifier) {
+                        StatRow(label: Format.zoneLabel(identifier),
+                                value: Format.clock(Date(), timeZone: zone))
+                    }
+                }
+                if settings.clockZoneIdentifiers.isEmpty {
+                    Text("可在「设置 › 常规 › 时钟」里添加其它时区")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
     // MARK: - 进程
 
     private var processCard: some View {
@@ -452,12 +505,18 @@ struct DashboardView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(store.rankedProcesses(limit: 6)) { process in
+                    ForEach(store.rankedProcesses(limit: settings.processCount)) { process in
                         HStack(spacing: 6) {
                             Text(process.name)
                                 .font(.system(size: 10.5))
+                                .foregroundColor(process.isSuspended ? .red : .primary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                            if process.isSuspended {
+                                Text("挂起")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.red)
+                            }
                             Spacer(minLength: 4)
                             Text(String(format: "%.1f%%", process.cpu))
                                 .font(.system(size: 10.5, weight: .medium))

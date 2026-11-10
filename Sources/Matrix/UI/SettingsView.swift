@@ -52,8 +52,58 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            Section {
+                Toggle("查询公网 IP", isOn: $settings.publicIPEnabled)
+                Stepper(value: $settings.processCount, in: 3 ... 12) {
+                    Text("面板显示 \(settings.processCount) 个进程")
+                }
+                TextField("隐藏的网卡，逗号分隔（如 utun3, en5）",
+                          text: hiddenInterfacesBinding)
+            } header: {
+                Text("数据")
+            } footer: {
+                Text("公网 IP 会向 api.ipify.org 发请求，默认关闭；进程数只影响面板显示。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section {
+                TextField("额外时区，逗号分隔（如 Asia/Tokyo, Europe/London）",
+                          text: clockZonesBinding)
+            } header: {
+                Text("时钟")
+            } footer: {
+                Text("填 TimeZone 标识符，会显示在面板的时间卡片里。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private var clockZonesBinding: Binding<String> {
+        Binding(
+            get: { settings.clockZoneIdentifiers.joined(separator: ", ") },
+            set: { raw in
+                settings.clockZoneIdentifiers = raw
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty && TimeZone(identifier: $0) != nil }
+            }
+        )
+    }
+
+    private var hiddenInterfacesBinding: Binding<String> {
+        Binding(
+            get: { settings.hiddenInterfaces.joined(separator: ", ") },
+            set: { raw in
+                settings.hiddenInterfaces = raw
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+        )
     }
 
     // MARK: - 状态栏
@@ -64,6 +114,32 @@ struct SettingsView: View {
 
     private var menuBarTab: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("显示样式")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Picker("", selection: $settings.menuBarStyle) {
+                    ForEach(MenuBarStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 170)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+
+            Text(settings.menuBarStyle.hint)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+
+            Divider()
+
             List {
                 Section {
                     ForEach(settings.menuBarModules) { module in

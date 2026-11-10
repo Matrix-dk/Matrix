@@ -6,6 +6,9 @@ import Darwin
 final class MemoryReader {
 
     private var pageSize: UInt64 = 4096
+    private var previousPageIns: UInt64 = 0
+    private var previousPageOuts: UInt64 = 0
+    private var hasPageBaseline = false
 
     init() {
         var size: vm_size_t = 0
@@ -14,7 +17,7 @@ final class MemoryReader {
         }
     }
 
-    func sample() -> MemorySample? {
+    func sample(interval: Double) -> MemorySample? {
         var statistics = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
 
@@ -54,6 +57,20 @@ final class MemoryReader {
         }
 
         sample.pressure = Self.pressureLevel()
+
+        // 页面换入/换出：vm_statistics64 里这两个是 64 位累计值，差值即本拍活动
+        sample.pageIns = statistics.pageins
+        sample.pageOuts = statistics.pageouts
+        if hasPageBaseline,
+           statistics.pageins >= previousPageIns,
+           statistics.pageouts >= previousPageOuts {
+            let divisor = max(interval, 0.2)
+            sample.pageInRate = Double(statistics.pageins - previousPageIns) / divisor
+            sample.pageOutRate = Double(statistics.pageouts - previousPageOuts) / divisor
+        }
+        previousPageIns = statistics.pageins
+        previousPageOuts = statistics.pageouts
+        hasPageBaseline = true
 
         return sample
     }

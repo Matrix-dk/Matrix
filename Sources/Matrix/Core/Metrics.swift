@@ -50,6 +50,10 @@ struct MemorySample {
     var swapTotal: UInt64 = 0
     var swapUsed: UInt64 = 0
     var pressure: MemoryPressure = .normal
+    var pageIns: UInt64 = 0               // 累计换入页数
+    var pageOuts: UInt64 = 0              // 累计换出页数
+    var pageInRate: Double = 0            // 每秒换入页
+    var pageOutRate: Double = 0           // 每秒换出页
 
     var usage: Double { total > 0 ? Double(used) / Double(total) : 0 }
     var free: UInt64 { total > used ? total - used : 0 }
@@ -114,6 +118,7 @@ struct NetworkSample {
     var totalUp: UInt64 = 0
     var interfaceName: String = ""
     var ipAddress: String = ""
+    var publicIP: String = ""
     var hasInterface: Bool = false
     var interfaces: [InterfaceSample] = []
 }
@@ -171,6 +176,10 @@ struct ProcessSample: Identifiable, Hashable {
     var name: String
     var cpu: Double          // 百分比，如 12.5
     var memory: UInt64       // bytes
+    var state: String = ""   // ps 的 state 列，含 T 表示已挂起
+
+    /// 进程被挂起（SIGSTOP / 调试中），iStat 之类会标红
+    var isSuspended: Bool { state.contains("T") }
 }
 
 enum ProcessSort: String, CaseIterable, Identifiable {
@@ -411,5 +420,24 @@ enum Format {
         let formatter = DateFormatter()
         formatter.dateFormat = "M月d日 HH:mm"
         return formatter.string(from: date)
+    }
+
+    static func fullDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M月d日 EEE HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    static func clock(_ date: Date, timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func zoneLabel(_ identifier: String) -> String {
+        guard let zone = TimeZone(identifier: identifier) else { return identifier }
+        let city = identifier.split(separator: "/").last.map(String.init) ?? identifier
+        return "\(city.replacingOccurrences(of: "_", with: " ")) · \(zone.abbreviation() ?? "")"
     }
 }

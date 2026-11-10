@@ -31,9 +31,13 @@ final class Sampler: ObservableObject {
     /// 每次刷新结束回调（状态栏据此重绘）
     var onUpdate: (() -> Void)?
 
+    /// 暂停后定时器停掉，读数冻结
+    @Published private(set) var isPaused = false
+
     let alerts = AlertEngine()
 
     private let settings = Settings.shared
+    private let publicIPResolver = PublicIPResolver()
 
     private let cpuReader = CPUReader()
     private let memoryReader = MemoryReader()
@@ -79,7 +83,22 @@ final class Sampler: ObservableObject {
         start()
     }
 
+    func setPaused(_ paused: Bool) {
+        isPaused = paused
+        if paused {
+            stop()
+        } else {
+            restart()
+        }
+    }
+
+    func resetNetworkTotals() {
+        networkReader.resetAccumulated()
+    }
+
     @objc private func tick() {
+        guard !isPaused else { return }
+
         let now = Date()
         let elapsed = max(now.timeIntervalSince(lastTickDate), 0.2)
         lastTickDate = now
@@ -90,7 +109,7 @@ final class Sampler: ObservableObject {
             cpuHistory.push(cpuSample.usage)
         }
 
-        if let memorySample = memoryReader.sample() {
+        if let memorySample = memoryReader.sample(interval: elapsed) {
             memory = memorySample
             memoryHistory.push(memorySample.usage)
         }
@@ -98,7 +117,16 @@ final class Sampler: ObservableObject {
         gpu = gpuReader.sample()
         gpuHistory.push(gpu.utilization)
 
-        let networkSample = networkReader.sample(interval: elapsed, wifiInterface: wifiReader.interfaceName)
+        var networkSample = networkReader.sample(interval: elapsed,
+                                                 wifiInterface: wifiReader.interfaceName,
+                                                 hidden: settings.hiddenInterfaces)
+        if settings.publicIPEnabled {
+            publicIPResolver.refreshIfNeeded()
+            networkSample.publicIP = publicIPResolver.current
+        } else {
+            publicIPResolver.clear()
+            networkSample.publicIP = ""
+        }
         network = networkSample
         downHistory.push(networkSample.downBytesPerSec)
         upHistory.push(networkSample.upBytesPerSec)

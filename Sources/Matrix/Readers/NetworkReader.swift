@@ -17,7 +17,7 @@ final class NetworkReader {
                                                                          nil,
                                                                          nil)
 
-    func sample(interval: Double, wifiInterface: String? = nil) -> NetworkSample {
+    func sample(interval: Double, wifiInterface: String? = nil, hidden: [String] = []) -> NetworkSample {
         var sample = NetworkSample()
         var addresses: UnsafeMutablePointer<ifaddrs>?
 
@@ -65,6 +65,9 @@ final class NetworkReader {
         var interfaces: [InterfaceSample] = []
 
         for (name, current) in counters {
+            // 用户隐藏掉的接口既不显示也不计入汇总
+            if hidden.contains(name) { continue }
+
             var item = InterfaceSample()
             item.name = name
             item.ipAddress = ips[name] ?? ""
@@ -115,6 +118,11 @@ final class NetworkReader {
     }
 
     // MARK: - 辅助
+
+    /// 手动把「本次开机累计」清零（重新建基线）
+    func resetAccumulated() {
+        accumulated.removeAll()
+    }
 
     private func primaryInterfaceName() -> String? {
         guard let store = dynamicStore,

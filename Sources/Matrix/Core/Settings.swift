@@ -50,6 +50,35 @@ enum ModuleKind: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+// MARK: - 状态栏显示样式
+
+enum MenuBarStyle: String, CaseIterable, Identifiable, Codable {
+    case text          // CPU 12%
+    case valueOnly     // 12%
+    case icon          // 只有图标
+    case ring          // 圆环进度 + 数值
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .text: return "标签 + 数值"
+        case .valueOnly: return "只显示数值"
+        case .icon: return "只显示图标"
+        case .ring: return "圆环 + 数值"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .text: return "默认样式，信息最全但最占宽度。"
+        case .valueOnly: return "省掉 CPU/MEM 字样，靠图标本身区分。"
+        case .icon: return "最省宽度，鼠标悬停看 tooltip。"
+        case .ring: return "环形进度条，接近 iStat 的图形模式。"
+        }
+    }
+}
+
 // MARK: - 告警规则
 
 enum AlertMetric: String, CaseIterable, Identifiable, Codable {
@@ -166,6 +195,11 @@ final class Settings: ObservableObject {
         static let sensorsAll = "showAllSensors"
         static let processSort = "processSort"
         static let clockSeconds = "clockShowSeconds"
+        static let style = "menuBarStyle"
+        static let publicIP = "publicIPEnabled"
+        static let processCount = "processCount"
+        static let clockZones = "clockZoneIdentifiers"
+        static let hiddenIfaces = "hiddenInterfaces"
     }
 
     private let defaults = UserDefaults.standard
@@ -217,6 +251,31 @@ final class Settings: ObservableObject {
         didSet { defaults.set(clockShowsSeconds, forKey: Key.clockSeconds) }
     }
 
+    /// 状态栏显示样式
+    @Published var menuBarStyle: MenuBarStyle {
+        didSet { defaults.set(menuBarStyle.rawValue, forKey: Key.style) }
+    }
+
+    /// 是否解析公网 IP（会向 ipify 发请求，可关）
+    @Published var publicIPEnabled: Bool {
+        didSet { defaults.set(publicIPEnabled, forKey: Key.publicIP) }
+    }
+
+    /// 面板里显示几个进程
+    @Published var processCount: Int {
+        didSet { defaults.set(processCount, forKey: Key.processCount) }
+    }
+
+    /// 面板时钟卡片里额外显示哪些时区（TimeZone 标识符）
+    @Published var clockZoneIdentifiers: [String] {
+        didSet { defaults.set(clockZoneIdentifiers, forKey: Key.clockZones) }
+    }
+
+    /// 不希望在接口列表里看到的网卡名
+    @Published var hiddenInterfaces: [String] {
+        didSet { defaults.set(hiddenInterfaces, forKey: Key.hiddenIfaces) }
+    }
+
     private init() {
         let stored = defaults.stringArray(forKey: Key.modules)
             ?? [ModuleKind.cpu.rawValue, ModuleKind.memory.rawValue, ModuleKind.network.rawValue]
@@ -239,6 +298,13 @@ final class Settings: ObservableObject {
 
         let sortRaw = defaults.string(forKey: Key.processSort) ?? ProcessSort.cpu.rawValue
         processSort = ProcessSort(rawValue: sortRaw) ?? .cpu
+
+        let styleRaw = defaults.string(forKey: Key.style) ?? MenuBarStyle.text.rawValue
+        menuBarStyle = MenuBarStyle(rawValue: styleRaw) ?? .text
+        publicIPEnabled = defaults.object(forKey: Key.publicIP) as? Bool ?? false
+        processCount = defaults.object(forKey: Key.processCount) as? Int ?? 6
+        clockZoneIdentifiers = defaults.stringArray(forKey: Key.clockZones) ?? []
+        hiddenInterfaces = defaults.stringArray(forKey: Key.hiddenIfaces) ?? []
 
         if let data = defaults.data(forKey: Key.alerts),
            let decoded = try? JSONDecoder().decode([AlertRule].self, from: data) {
